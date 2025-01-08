@@ -25,14 +25,15 @@ jobs:
       - name: Deploy Lambda Code
         uses: imehedi/actions-awscli-v2@latest
         with:
-          args: "lambda update-function-code 
-                --function-name github-actions 
-                --zip-file fileb://code.zip"
+          args: >
+            lambda update-function-code 
+            --function-name github-actions 
+            --zip-file fileb://code.zip
 
       - name: Update Lambda Configuration
         uses: imehedi/actions-awscli-v2@latest
         with:
-          args: |
+          args: >
             lambda update-function-configuration 
             --function-name github-actions 
             --runtime nodejs22.x 
