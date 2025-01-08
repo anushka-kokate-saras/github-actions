@@ -1,4 +1,4 @@
-name: Deploy Lambda Function
+name: Deploy Lambda Function with SQS Trigger
 
 on:
   push:
@@ -8,19 +8,38 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    env:  # Define environment variables globally for the entire job
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: "ap-northeast-3"
+
     steps:
+      # Step 1: Checkout the code
       - uses: actions/checkout@v2
+      
+      # Step 2: Install zip tool
       - name: Install zip tool
         uses: montudor/action-zip@v1
+      
+      # Step 3: Create zip file for Lambda function
       - name: Create Zip file for Lambda function
         run: zip -r code.zip .
-      - name: AWS CLI v2
+
+      # Step 4: Deploy Lambda Code
+      - name: Deploy Lambda Code
         uses: imehedi/actions-awscli-v2@latest
         with:
           args: "lambda update-function-code \
             --function-name github-actions \
             --zip-file fileb://code.zip"
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: "ap-northeast-3"
+
+      # Step 5: Update Lambda Configuration (optional)
+      - name: Update Lambda Configuration
+        uses: imehedi/actions-awscli-v2@latest
+        with:
+          args: |
+            lambda update-function-configuration \
+              --function-name github-actions \
+              --runtime nodejs22.x \
+              --timeout 30 \
+              --memory-size 512
