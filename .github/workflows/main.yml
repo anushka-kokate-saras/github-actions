@@ -32,9 +32,10 @@ jobs:
       - name: Update Lambda Configuration
         uses: imehedi/actions-awscli-v2@latest
         with:
-          args: "lambda update-function-configuration 
-                --function-name github-actions 
-                --runtime nodejs22.x 
-                --timeout 180 
-                --memory-size 256
-                --ephemeral-storage 1024"
+          args: |
+            lambda update-function-configuration 
+            --function-name github-actions 
+            --runtime nodejs22.x 
+            --timeout 180 
+            --memory-size 256 
+            --ephemeral-storage '{"Size": 1024}'
