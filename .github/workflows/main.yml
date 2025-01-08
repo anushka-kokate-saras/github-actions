@@ -36,4 +36,4 @@ jobs:
                 --function-name github-actions 
                 --runtime nodejs22.x 
                 --timeout 120
-                --memory-size 256"
+                --memory-size 512"
