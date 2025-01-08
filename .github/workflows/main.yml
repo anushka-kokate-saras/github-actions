@@ -8,38 +8,26 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    env:  # Define environment variables globally for the entire job
+    env: 
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: "ap-northeast-3"
 
     steps:
-      # Step 1: Checkout the code
       - uses: actions/checkout@v2
-      
-      # Step 2: Install zip tool
+
       - name: Install zip tool
         uses: montudor/action-zip@v1
-      
-      # Step 3: Create zip file for Lambda function
+
       - name: Create Zip file for Lambda function
         run: zip -r code.zip .
 
-      # Step 4: Deploy Lambda Code
       - name: Deploy Lambda Code
         uses: imehedi/actions-awscli-v2@latest
         with:
-          args: "lambda update-function-code \
-            --function-name github-actions \
-            --zip-file fileb://code.zip"
+          args: "lambda update-function-code --function-name github-actions --zip-file fileb://code.zip"
 
-      # Step 5: Update Lambda Configuration (optional)
       - name: Update Lambda Configuration
         uses: imehedi/actions-awscli-v2@latest
         with:
-          args: |
-            lambda update-function-configuration \
-              --function-name github-actions \
-              --runtime nodejs22.x \
-              --timeout 30 \
-              --memory-size 512
+          args: "lambda update-function-configuration --function-name github-actions --runtime nodejs18.x --timeout 30 --memory-size 256"
