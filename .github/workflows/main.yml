@@ -37,4 +37,4 @@ jobs:
                 --runtime nodejs22.x 
                 --timeout 180 
                 --memory-size 256
-                --ephemeral-storage '{Size: 1024}'"
+                --ephemeral-storage 1024"
