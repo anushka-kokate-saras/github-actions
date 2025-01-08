@@ -35,5 +35,5 @@ jobs:
           args: "lambda update-function-configuration 
                 --function-name github-actions 
                 --runtime nodejs22.x 
-                --timeout 120
+                --timeout 20
                 --memory-size 512"
