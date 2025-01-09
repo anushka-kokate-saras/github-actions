@@ -41,10 +41,9 @@ jobs:
       - name: Add Environment Variables
         uses: imehedi/actions-awscli-v2@latest
         with:
-          args: |
-            lambda update-function-configuration 
+          args: "lambda update-function-configuration 
             --function-name github-actions 
-            --environment Variables={var1=value1,var2=value2}
+            --environment Variables={var1=value1,var2=value2}"
 
       - name: Add SQS Trigger
         uses: imehedi/actions-awscli-v2@latest
