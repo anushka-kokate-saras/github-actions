@@ -41,8 +41,7 @@ jobs:
       - name: Add SQS Trigger
         uses: imehedi/actions-awscli-v2@latest
         with:
-          args: |
-            lambda create-event-source-mapping 
+          args: "lambda create-event-source-mapping 
               --function-name github-actions 
               --batch-size 10 
-              --event-source-arn arn:aws:sqs:ap-northeast-3:569917129798:githubActions
+              --event-source-arn arn:aws:sqs:ap-northeast-3:569917129798:githubActions"
