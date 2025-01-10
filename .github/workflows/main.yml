@@ -19,11 +19,11 @@ jobs:
       - name: Install zip tool
         uses: montudor/action-zip@v1
 
-      - name: Install AWS CLI
+      - name: Install or Update AWS CLI
         run: |
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip awscliv2.zip
-          sudo ./aws/install
+          sudo ./aws/install --update
 
       - name: Deploy Lambda Functions
         run: |
@@ -36,7 +36,7 @@ jobs:
             cd ..
 
             aws lambda update-function-code --function-name "${FUNCTION_NAME}" --zip-file "fileb://${FUNCTION_NAME}.zip"
-            
+
             aws lambda update-function-configuration --function-name "${FUNCTION_NAME}" --runtime "nodejs22.x" --timeout 20 --memory-size 512 --environment "Variables={var1=value1,var2=value2}"
 
             if [ "${FUNCTION_NAME}" = "github-actions" ]; then
