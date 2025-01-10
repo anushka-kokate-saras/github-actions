@@ -1,4 +1,4 @@
-name: Deploy Lambda Function with config
+name: Deploy Multiple Lambda Functions
 
 on:
   push:
@@ -19,36 +19,41 @@ jobs:
       - name: Install zip tool
         uses: montudor/action-zip@v1
 
-      - name: Create Zip file for Lambda function
-        run: zip -r code.zip .
+      - name: Install AWS CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y awscli
 
-      - name: Deploy Lambda Code
-        uses: imehedi/actions-awscli-v2@latest
-        with:
-          args: "lambda update-function-code 
-                --function-name github-actions 
-                --zip-file fileb://code.zip"
+      - name: Deploy Lambda Functions
+        run: |
+          for dir in $(find ./lambdas -mindepth 1 -maxdepth 1 -type d); do
+            # Get function name from folder
+            FUNCTION_NAME=$(basename "$dir")
+            echo "Deploying $FUNCTION_NAME"
 
-      - name: Update Lambda Configuration
-        uses: imehedi/actions-awscli-v2@latest
-        with:
-          args: "lambda update-function-configuration 
-                --function-name github-actions 
-                --runtime nodejs22.x 
-                --timeout 20
-                --memory-size 512"
+            # Create ZIP file for the Lambda function
+            cd "$dir"
+            zip -r ../"${FUNCTION_NAME}.zip" .
+            cd ..
 
-      - name: Add Environment Variables
-        uses: imehedi/actions-awscli-v2@latest
-        with:
-          args: "lambda update-function-configuration 
-            --function-name github-actions 
-            --environment Variables={var1=value1,var2=value2}"
+            # Deploy the code
+            aws lambda update-function-code \
+              --function-name "${FUNCTION_NAME}" \
+              --zip-file "fileb://${FUNCTION_NAME}.zip"
 
-      - name: Add SQS Trigger
-        uses: imehedi/actions-awscli-v2@latest
-        with:
-          args: "lambda create-event-source-mapping 
-              --function-name github-actions 
-              --batch-size 10 
-              --event-source-arn arn:aws:sqs:ap-northeast-3:569917129798:githubActions"
+            # Update configuration
+            aws lambda update-function-configuration \
+              --function-name "${FUNCTION_NAME}" \
+              --runtime "nodejs22.x" \
+              --timeout 20 \
+              --memory-size 512 \
+              --environment "Variables={var1=value1,var2=value2}"
+
+            # Add SQS Trigger (if needed)
+            if [ "${FUNCTION_NAME}" = "github-actions" ]; then
+              aws lambda create-event-source-mapping \
+                --function-name "${FUNCTION_NAME}" \
+                --batch-size 10 \
+                --event-source-arn "arn:aws:sqs:ap-northeast-3:569917129798:githubActions"
+            fi
+          done
