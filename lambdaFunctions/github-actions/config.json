@@ -1,0 +1,16 @@
+{
+    "functionName": "github-actions",
+    "runtime": "nodejs22.x",
+    "timeout": 20,
+    "memorySize": 512,
+    "environmentVariables": {
+      "var1": "value1",
+      "var2": "value"
+    },
+    "sqsTrigger": {
+      "enabled": true,
+      "batchSize": 10,
+      "eventSourceArn": "arn:aws:sqs:ap-northeast-3:569917129798:githubActions"
+    }
+  }
+  
