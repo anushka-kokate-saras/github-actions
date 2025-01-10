@@ -29,23 +29,23 @@ jobs:
         run: |
             MAX_RETRIES=5
             RETRY_DELAY=10
-
+      
             for dir in ./lambdaFunctions/*/; do
               CONFIG_FILE="${dir}config.json"
-
+      
               # Read configuration variables
               FUNCTION_NAME=$(jq -r '.functionName' "$CONFIG_FILE")
               RUNTIME=$(jq -r '.runtime' "$CONFIG_FILE")
               TIMEOUT=$(jq -r '.timeout' "$CONFIG_FILE")
               MEMORY_SIZE=$(jq -r '.memorySize' "$CONFIG_FILE")
               SQS_ENABLED=$(jq -r '.sqsTrigger.enabled' "$CONFIG_FILE")
-
+      
               echo "Deploying $FUNCTION_NAME"
-
+      
               # Create ZIP file
               zip -r "${FUNCTION_NAME}.zip" "${dir}"
               sleep 5  # Sleep after creating ZIP
-
+      
               # Retry logic for updating function code
               attempt=0
               while [ $attempt -lt $MAX_RETRIES ]; do
@@ -57,13 +57,13 @@ jobs:
                   echo "Successfully updated function code for $FUNCTION_NAME"
                   break
                 fi
-
+      
                 attempt=$((attempt + 1))
                 echo "Update failed, retrying... ($attempt/$MAX_RETRIES)"
                 sleep $RETRY_DELAY
               done
               sleep 5  # Sleep after updating function code
-
+      
               # Retry logic for updating function configuration
               attempt=0
               while [ $attempt -lt $MAX_RETRIES ]; do
@@ -77,7 +77,21 @@ jobs:
                   echo "Successfully updated function configuration for $FUNCTION_NAME"
                   break
                 fi
-
+      
                 attempt=$((attempt + 1))
                 echo "Update failed, retrying... ($attempt/$MAX_RETRIES)"
-               
+                sleep $RETRY_DELAY
+              done
+              sleep 5
+      
+              # Add SQS Trigger if enabled
+              if [ "$SQS_ENABLED" = "true" ]; then
+                EVENT_SOURCE_ARN=$(jq -r '.sqsTrigger.eventSourceArn' "$CONFIG_FILE")
+                BATCH_SIZE=$(jq -r '.sqsTrigger.batchSize' "$CONFIG_FILE")
+      
+                aws lambda create-event-source-mapping \
+                  --function-name "$FUNCTION_NAME" \
+                  --batch-size "$BATCH_SIZE" \
+                  --event-source-arn "$EVENT_SOURCE_ARN"
+              fi
+            done
