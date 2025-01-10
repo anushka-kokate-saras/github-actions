@@ -27,19 +27,32 @@ jobs:
 
       - name: Deploy Lambda Functions
         run: |
-          for dir in $(find ./lambdaFunctions -mindepth 1 -maxdepth 1 -type d); do
+          for dir in ./lambdaFunctions/*/; do
             FUNCTION_NAME=$(basename "$dir")
             echo "Deploying $FUNCTION_NAME"
 
-            cd "$dir"
-            zip -r ../"${FUNCTION_NAME}.zip" .
-            cd ..
+            # Create ZIP file for the Lambda function
+            zip -r "${FUNCTION_NAME}.zip" "${dir}"
 
-            aws lambda update-function-code --function-name "${FUNCTION_NAME}" --zip-file "fileb://${FUNCTION_NAME}.zip"
+            # Deploy the code
+            aws lambda update-function-code \
+              --function-name "${FUNCTION_NAME}" \
+              --zip-file "fileb://${FUNCTION_NAME}.zip"
 
-            aws lambda update-function-configuration --function-name "${FUNCTION_NAME}" --runtime "nodejs22.x" --timeout 20 --memory-size 512 --environment "Variables={var1=value1,var2=value2}"
+            # Update configuration
+            aws lambda update-function-configuration \
+              --function-name "${FUNCTION_NAME}" \
+              --runtime "nodejs22.x" \
+              --timeout 20 \
+              --memory-size 512 \
+              --environment "Variables={var1=value1,var2=value2}"
 
+            # Add SQS Trigger (if needed)
             if [ "${FUNCTION_NAME}" = "github-actions" ]; then
-              aws lambda create-event-source-mapping --function-name "${FUNCTION_NAME}" --batch-size 10 --event-source-arn "arn:aws:sqs:ap-northeast-3:569917129798:githubActions"
+              aws lambda create-event-source-mapping \
+                --function-name "${FUNCTION_NAME}" \
+                --batch-size 10 \
+                --event-source-arn "arn:aws:sqs:ap-northeast-3:569917129798:githubActions"
             fi
           done
+
