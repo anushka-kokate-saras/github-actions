@@ -35,7 +35,7 @@ jobs:
               RUNTIME=$(jq -r '.runtime' "$CONFIG_FILE")
               TIMEOUT=$(jq -r '.timeout' "$CONFIG_FILE")
               MEMORY_SIZE=$(jq -r '.memorySize' "$CONFIG_FILE")
-              ENV_VARS=$(jq -c '.environmentVariables' "$CONFIG_FILE")
+              # ENV_VARS=$(jq -c '.environmentVariables' "$CONFIG_FILE")
               SQS_ENABLED=$(jq -r '.sqsTrigger.enabled' "$CONFIG_FILE")
 
               echo "Deploying $FUNCTION_NAME"
@@ -54,7 +54,7 @@ jobs:
                 --runtime "$RUNTIME" \
                 --timeout "$TIMEOUT" \
                 --memory-size "$MEMORY_SIZE" \
-                --environment Variables="$ENV_VARS"
+                # --environment Variables="$ENV_VARS"
 
               # Add SQS Trigger if enabled
               if [ "$SQS_ENABLED" = "true" ]; then
