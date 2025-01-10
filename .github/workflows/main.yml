@@ -27,7 +27,7 @@ jobs:
 
       - name: Deploy Lambda Functions
         run: |
-          for dir in $(find ./lambdas -mindepth 1 -maxdepth 1 -type d); do
+          for dir in $(find ./lambdaFunctions -mindepth 1 -maxdepth 1 -type d); do
             FUNCTION_NAME=$(basename "$dir")
             echo "Deploying $FUNCTION_NAME"
 
