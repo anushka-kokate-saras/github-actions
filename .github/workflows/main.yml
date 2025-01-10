@@ -54,7 +54,7 @@ jobs:
               --runtime "$RUNTIME" \
               --timeout "$TIMEOUT" \
               --memory-size "$MEMORY_SIZE" \
-              --environment "Variables=$ENV_VARS"
+              --environment Variables="$ENV_VARS"
 
             # Add SQS Trigger if enabled
             if [ "$SQS_ENABLED" = "true" ]; then
