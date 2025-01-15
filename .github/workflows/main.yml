@@ -1,16 +1,13 @@
-name: Deploy Tenant-specific Lambda Functions
+name: Deploy Multiple Lambda Functions
 
 on:
   push:
-    branches:
-      - '*'  # Trigger on all branch pushes
-  workflow_dispatch:  # Allow manual triggers
+    branches: [ '*' ]  # Trigger on all branches
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Skip deployment for the main branch if you want
-    if: github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/main'  # Skip for main branch
 
     env: 
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -29,13 +26,12 @@ jobs:
           unzip awscliv2.zip
           sudo ./aws/install --update
 
-      - name: Deploy Tenant-specific Lambda Functions
+      - name: Deploy Lambda Functions
         run: |
-            # Extract tenant ID from branch name and sanitize it
+            MAX_RETRIES=5
+            RETRY_DELAY=15
             TENANT_ID=$(echo "${{ github.ref_name }}" | tr -cd '[:alnum:]' | tr '[:upper:]' '[:lower:]')
             ROLE_NAME="LambdaRole_${TENANT_ID}"
-            
-            echo "Deploying for tenant: $TENANT_ID"
 
             # Function to create IAM role if not exists
             create_iam_role() {
@@ -57,38 +53,31 @@ jobs:
                   --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
                 aws iam attach-role-policy --role-name "$ROLE_NAME" \
                   --policy-arn "arn:aws:iam::aws:policy/AmazonSQSFullAccess"
-                
-                # Wait for role propagation
-                echo "Waiting for IAM role propagation..."
-                sleep 15
+                sleep 10
               else
-                echo "Using existing IAM role $ROLE_NAME"
+                echo "IAM role $ROLE_NAME already exists."
               fi
             }
 
             for dir in ./lambdaFunctions/*/; do
               CONFIG_FILE="${dir}config.json"
-              
-              # Read base configuration
+
+              # Get base function configuration
               BASE_FUNCTION_NAME=$(jq -r '.functionName' "$CONFIG_FILE")
               RUNTIME=$(jq -r '.runtime' "$CONFIG_FILE")
               TIMEOUT=$(jq -r '.timeout' "$CONFIG_FILE")
               MEMORY_SIZE=$(jq -r '.memorySize' "$CONFIG_FILE")
-              
+              ENV_VARS=$(jq -r '.environmentVariables | to_entries | map("\(.key)=\(.value)") | join(",")' "$CONFIG_FILE")
+              SQS_ENABLED=$(jq -r '.sqsTrigger.enabled' "$CONFIG_FILE")
+
               # Create tenant-specific function name
               FUNCTION_NAME="${TENANT_ID}_${BASE_FUNCTION_NAME}"
-              
-              # Format environment variables correctly
-              ENV_JSON=$(jq -c ".environmentVariables + {TENANT_ID: \"$TENANT_ID\"}" "$CONFIG_FILE")
-              ENV_STRING="{$(echo "$ENV_JSON" | jq -r 'to_entries | map("\"\(.key)\"=\"\(.value)\"") | join(", ")')}"
-              
-              echo "Deploying tenant-specific function: $FUNCTION_NAME"
+              echo "Deploying $FUNCTION_NAME"
 
-              # Create deployment package
+              # Create a zip package excluding config.json
               zip -r "${FUNCTION_NAME}.zip" "${dir}" -x "${dir}config.json"
 
-              # Check if function exists
-              FUNCTION_EXISTS=$(aws lambda get-function --function-name "$FUNCTION_NAME" 2>/dev/null || echo "NO")
+              FUNCTION_EXISTS=$(aws lambda get-function --function-name "$FUNCTION_NAME" --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "NO")
 
               if [ "$FUNCTION_EXISTS" = "NO" ]; then
                 echo "Creating new Lambda function $FUNCTION_NAME..."
@@ -98,57 +87,45 @@ jobs:
                   --function-name "$FUNCTION_NAME" \
                   --runtime "$RUNTIME" \
                   --role "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/$ROLE_NAME" \
-                  --handler "index.handler" \
+                  --handler "${dir}handler.lambda_handler" \
                   --timeout "$TIMEOUT" \
                   --memory-size "$MEMORY_SIZE" \
-                  --environment "Variables=$ENV_STRING" \
+                  --environment "Variables={$ENV_VARS}" \
                   --zip-file "fileb://${FUNCTION_NAME}.zip" \
                   --tags "Tenant=$TENANT_ID"
               else
                 echo "Updating existing Lambda function $FUNCTION_NAME..."
-                
-                # Update function code
-                aws lambda update-function-code \
-                  --function-name "$FUNCTION_NAME" \
-                  --zip-file "fileb://${FUNCTION_NAME}.zip"
+                aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file "fileb://${FUNCTION_NAME}.zip"
 
-                # Update configuration with retries
                 RETRY_COUNT=0
-                while [ $RETRY_COUNT -lt 5 ]; do
-                  if aws lambda update-function-configuration \
-                    --function-name "$FUNCTION_NAME" \
-                    --timeout "$TIMEOUT" \
-                    --memory-size "$MEMORY_SIZE" \
-                    --environment "Variables=$ENV_STRING"; then
-                    break
-                  fi
+                while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+                  aws lambda update-function-configuration --function-name "$FUNCTION_NAME" --environment "Variables={$ENV_VARS}" && break
                   RETRY_COUNT=$((RETRY_COUNT+1))
-                  echo "Retrying configuration update... ($RETRY_COUNT/5)"
-                  sleep 10
+                  echo "Update conflict detected for $FUNCTION_NAME. Retrying in $RETRY_DELAY seconds... ($RETRY_COUNT/$MAX_RETRIES)"
+                  sleep $RETRY_DELAY
                 done
+                if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+                  echo "Failed to update function configuration for $FUNCTION_NAME after $MAX_RETRIES attempts."
+                  exit 1
+                fi
               fi
 
-              # Handle SQS triggers
-              SQS_ENABLED=$(jq -r '.sqsTrigger.enabled' "$CONFIG_FILE")
               if [ "$SQS_ENABLED" = "true" ]; then
+                # Get base queue ARN and create tenant-specific queue ARN
                 BASE_QUEUE_ARN=$(jq -r '.sqsTrigger.eventSourceArn' "$CONFIG_FILE")
                 TENANT_QUEUE_ARN="${BASE_QUEUE_ARN%.*}_${TENANT_ID}.fifo"  # Assuming FIFO queues
                 BATCH_SIZE=$(jq -r '.sqsTrigger.batchSize' "$CONFIG_FILE")
                 
-                EXISTING_MAPPING=$(aws lambda list-event-source-mappings \
-                  --function-name "$FUNCTION_NAME" \
-                  --query "EventSourceMappings[?EventSourceArn=='$TENANT_QUEUE_ARN'].UUID" \
-                  --output text)
-                
+                EXISTING_MAPPING=$(aws lambda list-event-source-mappings --function-name "$FUNCTION_NAME" --query 'EventSourceMappings[?EventSourceArn==`'$TENANT_QUEUE_ARN'`].UUID' --output text)
                 if [ -z "$EXISTING_MAPPING" ]; then
-                  echo "Adding tenant-specific SQS trigger for $FUNCTION_NAME..."
-                  aws lambda create-event-source-mapping \
-                    --function-name "$FUNCTION_NAME" \
-                    --batch-size "$BATCH_SIZE" \
-                    --event-source-arn "$TENANT_QUEUE_ARN"
+                  echo "Adding SQS trigger for $FUNCTION_NAME..."
+                  aws lambda create-event-source-mapping --function-name "$FUNCTION_NAME" --batch-size "$BATCH_SIZE" --event-source-arn "$TENANT_QUEUE_ARN"
+                else
+                  echo "SQS trigger already exists for $FUNCTION_NAME. Skipping..."
                 fi
               fi
 
-              echo "Deployment complete for $FUNCTION_NAME"
+              echo "Deployment complete for $FUNCTION_NAME."
+              echo "Waiting 10 seconds before deploying the next function..."
               sleep 10
             done
