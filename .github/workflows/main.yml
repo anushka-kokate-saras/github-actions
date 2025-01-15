@@ -70,7 +70,8 @@ jobs:
 
               echo "Deploying $FUNCTION_NAME"
 
-              zip -r "${FUNCTION_NAME}.zip" "${dir}"
+              # Create a zip package excluding config.json
+              zip -r "${FUNCTION_NAME}.zip" "${dir}" -x "${dir}config.json"
 
               FUNCTION_EXISTS=$(aws lambda get-function --function-name "$FUNCTION_NAME" --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "NO")
 
