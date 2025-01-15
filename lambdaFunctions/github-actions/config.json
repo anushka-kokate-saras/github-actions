@@ -4,7 +4,7 @@
     "timeout": 20,
     "memorySize": 512,
     "environmentVariables": {
-      "var1": "value1",
+      "var1": "It works",
       "var2": "value"
     },
     "sqsTrigger": {
