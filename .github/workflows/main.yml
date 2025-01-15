@@ -24,7 +24,7 @@ jobs:
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip awscliv2.zip
           sudo ./aws/install --update
-          
+
       - name: Deploy Lambda Functions
         run: |
             MAX_RETRIES=5
@@ -74,16 +74,22 @@ jobs:
               TEMP_DIR="./temp_lambda"
               mkdir -p "$TEMP_DIR"
 
-              # Copy all files except config.json to the temporary directory
-              cp -r "${dir}*" "$TEMP_DIR"
-              rm "$TEMP_DIR/config.json"  # Remove config.json from the temp directory
+              # Check if the directory contains files (excluding config.json)
+              if [ "$(ls -A "${dir}" | grep -v 'config.json')" ]; then
+                  # Copy all files except config.json to the temporary directory
+                  cp -r "${dir}"* "$TEMP_DIR"
+                  rm "$TEMP_DIR/config.json"  # Remove config.json from the temp directory
+              else
+                  echo "No files to copy from $dir, skipping..."
+                  continue  # Skip to the next iteration of the loop
+              fi
 
               # Create a zip package from the temporary directory
               zip -r "${FUNCTION_NAME}.zip" "$TEMP_DIR/*"
 
               FUNCTION_EXISTS=$(aws lambda get-function --function-name "$FUNCTION_NAME" --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "NO")
 
-              if [ "$FUNCTION_EXISTS" = "NO" ]; then
+              if [ "$FUNCTION_EXISTS" = "NO " ]; then
                 echo "Creating new Lambda function $FUNCTION_NAME..."
                 create_iam_role
 
@@ -112,7 +118,7 @@ jobs:
                 fi
               fi
 
-              if [ "$ SQS_ENABLED" = "true" ]; then
+              if [ "$SQS_ENABLED" = "true" ]; then
                 EVENT_SOURCE_ARN=$(jq -r '.sqsTrigger.eventSourceArn' "$CONFIG_FILE")
                 BATCH_SIZE=$(jq -r '.sqsTrigger.batchSize' "$CONFIG_FILE")
                 EXISTING_MAPPING=$(aws lambda list-event-source-mappings --function-name "$FUNCTION_NAME" --query 'EventSourceMappings[?EventSourceArn==`'$EVENT_SOURCE_ARN'`].UUID' --output text)
@@ -127,9 +133,6 @@ jobs:
               echo "Deployment complete for $FUNCTION_NAME."
               echo "Cleaning up temporary files..."
               rm -rf "$TEMP_DIR"  # Clean up the temporary directory
-              echo "Waiting 10 seconds before deploying the next function..."
-              sleep 10
-            done
               echo "Waiting 10 seconds before deploying the next function..."
               sleep 10
             done
