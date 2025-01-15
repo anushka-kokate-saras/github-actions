@@ -89,7 +89,7 @@ jobs:
               ls -la "$TEMP_DIR"
 
               # Create a zip package from the temporary directory
-              zip -r "${FUNCTION_NAME}.zip" "$TEMP_DIR"
+              cd "$TEMP_DIR" && zip -r "../${FUNCTION_NAME}.zip" 
 
               FUNCTION_EXISTS=$(aws lambda get-function --function-name "$FUNCTION_NAME" --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "NO")
 
