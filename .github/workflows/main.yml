@@ -70,8 +70,16 @@ jobs:
 
               echo "Deploying $FUNCTION_NAME"
 
+              ZIP_PATH="${dir}${FUNCTION_NAME}.zip"
+
               # Navigate into the directory and zip all files except config.json
-              (cd "${dir}" && zip -r "../${FUNCTION_NAME}.zip" . -x "config.json")
+              (cd "${dir}" && zip -r "$ZIP_PATH" . -x "config.json")
+              
+              # Verify that the zip file was created
+              if [ ! -f "$ZIP_PATH" ]; then
+                echo "Error: Zip file $ZIP_PATH was not created."
+                exit 1
+              fi
 
               FUNCTION_EXISTS=$(aws lambda get-function --function-name "$FUNCTION_NAME" --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "NO")
 
@@ -86,10 +94,10 @@ jobs:
                   --handler "index.lambda_handler" \
                   --timeout "$TIMEOUT" \
                   --memory-size "$MEMORY_SIZE" \
-                  --zip-file "fileb://${FUNCTION_NAME}.zip"
+                  --zip-file "fileb://${ZIP_PATH}"
               else
                 echo "Updating existing Lambda function $FUNCTION_NAME..."
-                aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file "fileb://${FUNCTION_NAME}.zip"
+                aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file "fileb://${ZIP_PATH}"
 
                 RETRY_COUNT=0
                 MAX_RETRIES=5
@@ -105,20 +113,4 @@ jobs:
                   exit 1
                 fi
               fi
-
-              if [ "$SQS_ENABLED" = "true" ]; then
-                EVENT_SOURCE_ARN=$(jq -r '.sqsTrigger.eventSourceArn' "$CONFIG_FILE")
-                BATCH_SIZE=$(jq -r '.sqsTrigger.batchSize' "$CONFIG_FILE")
-                EXISTING_MAPPING=$(aws lambda list-event-source-mappings --function-name "$FUNCTION_NAME" --query 'EventSourceMappings[?EventSourceArn==`'$EVENT_SOURCE_ARN'`].UUID' --output text)
-                if [ -z "$EXISTING_MAPPING" ]; then
-                  echo "Adding SQS trigger for $FUNCTION_NAME..."
-                  aws lambda create-event-source-mapping --function-name "$FUNCTION_NAME" --batch-size "$BATCH_SIZE" --event-source-arn "$EVENT_SOURCE_ARN"
-                else
-                  echo "SQS trigger already exists for $FUNCTION_NAME. Skipping..."
-                fi
-              fi
-
-              echo "Deployment complete for $FUNCTION_NAME."
-              echo "Waiting 10 seconds before deploying the next function..."
-              sleep 10
             done
