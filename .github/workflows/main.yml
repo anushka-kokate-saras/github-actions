@@ -24,7 +24,7 @@ jobs:
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip awscliv2.zip
           sudo ./aws/install --update
-
+          
       - name: Deploy Lambda Functions
         run: |
             MAX_RETRIES=5
@@ -70,16 +70,16 @@ jobs:
 
               echo "Deploying $FUNCTION_NAME"
 
-              ZIP_PATH="${dir}${FUNCTION_NAME}.zip"
+              # Create a temporary directory for flattening the structure
+              TEMP_DIR="./temp_lambda"
+              mkdir -p "$TEMP_DIR"
 
-              # Navigate into the directory and zip all files except config.json
-              (cd "${dir}" && zip -r "$ZIP_PATH" . -x "config.json")
-              
-              # Verify that the zip file was created
-              if [ ! -f "$ZIP_PATH" ]; then
-                echo "Error: Zip file $ZIP_PATH was not created."
-                exit 1
-              fi
+              # Copy all files except config.json to the temporary directory
+              cp -r "${dir}*" "$TEMP_DIR"
+              rm "$TEMP_DIR/config.json"  # Remove config.json from the temp directory
+
+              # Create a zip package from the temporary directory
+              zip -r "${FUNCTION_NAME}.zip" "$TEMP_DIR/*"
 
               FUNCTION_EXISTS=$(aws lambda get-function --function-name "$FUNCTION_NAME" --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "NO")
 
@@ -91,17 +91,15 @@ jobs:
                   --function-name "$FUNCTION_NAME" \
                   --runtime "$RUNTIME" \
                   --role "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/$ROLE_NAME" \
-                  --handler "index.lambda_handler" \
+                  --handler "handler.lambda_handler" \
                   --timeout "$TIMEOUT" \
                   --memory-size "$MEMORY_SIZE" \
-                  --zip-file "fileb://${ZIP_PATH}"
+                  --zip-file "fileb://${FUNCTION_NAME}.zip"
               else
                 echo "Updating existing Lambda function $FUNCTION_NAME..."
-                aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file "fileb://${ZIP_PATH}"
+                aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file "fileb://${FUNCTION_NAME}.zip"
 
                 RETRY_COUNT=0
-                MAX_RETRIES=5
-                RETRY_DELAY=10
                 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
                   aws lambda update-function-configuration --function-name "$FUNCTION_NAME" --environment "Variables={$ENV_VARS}" && break
                   RETRY_COUNT=$((RETRY_COUNT+1))
@@ -113,4 +111,25 @@ jobs:
                   exit 1
                 fi
               fi
+
+              if [ "$ SQS_ENABLED" = "true" ]; then
+                EVENT_SOURCE_ARN=$(jq -r '.sqsTrigger.eventSourceArn' "$CONFIG_FILE")
+                BATCH_SIZE=$(jq -r '.sqsTrigger.batchSize' "$CONFIG_FILE")
+                EXISTING_MAPPING=$(aws lambda list-event-source-mappings --function-name "$FUNCTION_NAME" --query 'EventSourceMappings[?EventSourceArn==`'$EVENT_SOURCE_ARN'`].UUID' --output text)
+                if [ -z "$EXISTING_MAPPING" ]; then
+                  echo "Adding SQS trigger for $FUNCTION_NAME..."
+                  aws lambda create-event-source-mapping --function-name "$FUNCTION_NAME" --batch-size "$BATCH_SIZE" --event-source-arn "$EVENT_SOURCE_ARN"
+                else
+                  echo "SQS trigger already exists for $FUNCTION_NAME. Skipping..."
+                fi
+              fi
+
+              echo "Deployment complete for $FUNCTION_NAME."
+              echo "Cleaning up temporary files..."
+              rm -rf "$TEMP_DIR"  # Clean up the temporary directory
+              echo "Waiting 10 seconds before deploying the next function..."
+              sleep 10
+            done
+              echo "Waiting 10 seconds before deploying the next function..."
+              sleep 10
             done
