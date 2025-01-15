@@ -52,6 +52,7 @@ jobs:
                   --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
                 aws iam attach-role-policy --role-name "$ROLE_NAME" \
                   --policy-arn "arn:aws:iam::aws:policy/AmazonSQSFullAccess"
+                sleep 10
               else
                 echo "IAM role $ROLE_NAME already exists."
               fi
