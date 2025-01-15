@@ -8,9 +8,7 @@
       "var2": "value"
     },
     "sqsTrigger": {
-      "enabled": true,
-      "batchSize": 10,
-      "eventSourceArn": "arn:aws:sqs:ap-northeast-3:569917129798:githubActions"
+      "enabled": false
     }
   }
   
