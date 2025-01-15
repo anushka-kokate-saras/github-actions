@@ -78,10 +78,9 @@ jobs:
               # Create tenant-specific function name
               FUNCTION_NAME="${TENANT_ID}_${BASE_FUNCTION_NAME}"
               
-              # Add tenant-specific environment variables
-              BASE_ENV_VARS=$(jq -r '.environmentVariables' "$CONFIG_FILE")
-              TENANT_ENV_VARS=$(echo "$BASE_ENV_VARS" | jq ". + {TENANT_ID: \"$TENANT_ID\"}" | 
-                               jq 'to_entries | map("\(.key)=\(.value)") | join(",")')
+              # Format environment variables correctly
+              ENV_JSON=$(jq -c ".environmentVariables + {TENANT_ID: \"$TENANT_ID\"}" "$CONFIG_FILE")
+              ENV_STRING="{$(echo "$ENV_JSON" | jq -r 'to_entries | map("\"\(.key)\"=\"\(.value)\"") | join(", ")')}"
               
               echo "Deploying tenant-specific function: $FUNCTION_NAME"
 
@@ -102,7 +101,7 @@ jobs:
                   --handler "index.handler" \
                   --timeout "$TIMEOUT" \
                   --memory-size "$MEMORY_SIZE" \
-                  --environment "Variables={$TENANT_ENV_VARS}" \
+                  --environment "Variables=$ENV_STRING" \
                   --zip-file "fileb://${FUNCTION_NAME}.zip" \
                   --tags "Tenant=$TENANT_ID"
               else
@@ -120,7 +119,7 @@ jobs:
                     --function-name "$FUNCTION_NAME" \
                     --timeout "$TIMEOUT" \
                     --memory-size "$MEMORY_SIZE" \
-                    --environment "Variables={$TENANT_ENV_VARS}"; then
+                    --environment "Variables=$ENV_STRING"; then
                     break
                   fi
                   RETRY_COUNT=$((RETRY_COUNT+1))
