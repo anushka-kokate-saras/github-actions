@@ -29,11 +29,37 @@ jobs:
         run: |
             MAX_RETRIES=5
             RETRY_DELAY=10
+            BRANCH_NAME=$(echo "${{ github.ref_name }}" | tr -cd '[:alnum:]')
+            ROLE_NAME="LambdaRole_${BRANCH_NAME}"
+
+            # Function to create IAM role if not exists
+            create_iam_role() {
+              ROLE_EXISTS=$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.RoleName' --output text 2>/dev/null || echo "NO")
+
+              if [ "$ROLE_EXISTS" = "NO" ]; then
+                echo "Creating IAM role $ROLE_NAME..."
+                aws iam create-role --role-name "$ROLE_NAME" \
+                  --assume-role-policy-document '{
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                      "Effect": "Allow",
+                      "Principal": {"Service": "lambda.amazonaws.com"},
+                      "Action": "sts:AssumeRole"
+                    }]
+                  }'
+
+                aws iam attach-role-policy --role-name "$ROLE_NAME" \
+                  --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+                aws iam attach-role-policy --role-name "$ROLE_NAME" \
+                  --policy-arn "arn:aws:iam::aws:policy/AmazonSQSFullAccess"
+              else
+                echo "IAM role $ROLE_NAME already exists."
+              fi
+            }
 
             for dir in ./lambdaFunctions/*/; do
               CONFIG_FILE="${dir}config.json"
 
-              # Read configuration variables
               FUNCTION_NAME=$(jq -r '.functionName' "$CONFIG_FILE")
               RUNTIME=$(jq -r '.runtime' "$CONFIG_FILE")
               TIMEOUT=$(jq -r '.timeout' "$CONFIG_FILE")
@@ -43,65 +69,50 @@ jobs:
 
               echo "Deploying $FUNCTION_NAME"
 
-              # Create ZIP file
               zip -r "${FUNCTION_NAME}.zip" "${dir}"
-              sleep 5
 
-              # Retry logic for updating function code
-              attempt=0
-              while [ $attempt -lt $MAX_RETRIES ]; do
-                aws lambda update-function-code \
+              # Check if function exists
+              FUNCTION_EXISTS=$(aws lambda get-function --function-name "$FUNCTION_NAME" --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "NO")
+
+              if [ "$FUNCTION_EXISTS" = "NO" ]; then
+                echo "Creating new Lambda function $FUNCTION_NAME..."
+                create_iam_role
+
+                aws lambda create-function \
                   --function-name "$FUNCTION_NAME" \
+                  --runtime "$RUNTIME" \
+                  --role "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/$ROLE_NAME" \
+                  --handler "${dir}handler.lambda_handler" \
+                  --timeout "$TIMEOUT" \
+                  --memory-size "$MEMORY_SIZE" \
                   --zip-file "fileb://${FUNCTION_NAME}.zip"
-                
-                if [ $? -eq 0 ]; then
-                  echo "Successfully updated function code for $FUNCTION_NAME"
-                  break
-                fi
+              else
+                echo "Updating existing Lambda function $FUNCTION_NAME..."
+                aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file "fileb://${FUNCTION_NAME}.zip"
+              fi
 
-                attempt=$((attempt + 1))
-                echo "Update failed, retrying... ($attempt/$MAX_RETRIES)"
-                sleep $RETRY_DELAY
-              done
-              sleep 5
+              if [ -n "$ENV_VARS" ]; then
+                echo "Updating environment variables for $FUNCTION_NAME..."
+                aws lambda update-function-configuration --function-name "$FUNCTION_NAME" --environment "Variables={$ENV_VARS}"
+              fi
 
-              # Retry logic for updating function configuration
-              attempt=0
-              while [ $attempt -lt $MAX_RETRIES ]; do
-                if [ -n "$ENV_VARS" ]; then
-                  aws lambda update-function-configuration \
-                    --function-name "$FUNCTION_NAME" \
-                    --runtime "$RUNTIME" \
-                    --timeout "$TIMEOUT" \
-                    --memory-size "$MEMORY_SIZE" \
-                    --environment "Variables={$ENV_VARS}"
-                else
-                  aws lambda update-function-configuration \
-                    --function-name "$FUNCTION_NAME" \
-                    --runtime "$RUNTIME" \
-                    --timeout "$TIMEOUT" \
-                    --memory-size "$MEMORY_SIZE"
-                fi
-
-                if [ $? -eq 0 ]; then
-                  echo "Successfully updated function configuration for $FUNCTION_NAME"
-                  break
-                fi
-
-                attempt=$((attempt + 1))
-                echo "Update failed, retrying... ($attempt/$MAX_RETRIES)"
-                sleep $RETRY_DELAY
-              done
-              sleep 5
-
-              # Add SQS Trigger if enabled
               if [ "$SQS_ENABLED" = "true" ]; then
                 EVENT_SOURCE_ARN=$(jq -r '.sqsTrigger.eventSourceArn' "$CONFIG_FILE")
                 BATCH_SIZE=$(jq -r '.sqsTrigger.batchSize' "$CONFIG_FILE")
 
-                aws lambda create-event-source-mapping \
-                  --function-name "$FUNCTION_NAME" \
-                  --batch-size "$BATCH_SIZE" \
-                  --event-source-arn "$EVENT_SOURCE_ARN"
+                # Check if SQS trigger already exists
+                EXISTING_MAPPING=$(aws lambda list-event-source-mappings --function-name "$FUNCTION_NAME" --query 'EventSourceMappings[?EventSourceArn==`'$EVENT_SOURCE_ARN'`].UUID' --output text)
+                
+                if [ -z "$EXISTING_MAPPING" ]; then
+                  echo "Adding SQS trigger for $FUNCTION_NAME..."
+                  aws lambda create-event-source-mapping \
+                    --function-name "$FUNCTION_NAME" \
+                    --batch-size "$BATCH_SIZE" \
+                    --event-source-arn "$EVENT_SOURCE_ARN"
+                else
+                  echo "SQS trigger already exists for $FUNCTION_NAME. Skipping..."
+                fi
               fi
+
+              echo "Deployment complete for $FUNCTION_NAME."
             done
