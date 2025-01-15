@@ -1,0 +1,14 @@
+{
+    "functionName": "github-actions-3",
+    "runtime": "nodejs22.x",
+    "timeout": 180,
+    "memorySize": 555,
+    "environmentVariables": {
+      "var1": "Yeah",
+      "var2": "Did it"
+    },
+    "sqsTrigger": {
+      "enabled": false
+    }
+  }
+  
